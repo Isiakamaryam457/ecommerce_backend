@@ -3,6 +3,15 @@ from django.conf import settings
 
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)  # updates automatically on every save
+    is_active = models.BooleanField(default=True)  # allows soft delete of categories
+
+    class Meta:
+        verbose_name_plural = 'Categories'  # fixes "Categorys" in admin panel
+        ordering = ['name']  # orders alphabetically by default
 
     def __str__(self):
         return self.name
@@ -15,7 +24,10 @@ class Product(models.Model):
     stock_quantity = models.PositiveIntegerField()
     image_url = models.URLField(blank=True)
     created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)  # updates automatically on every save
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
 
+    
     def __str__(self):
         return self.name
 
