@@ -1,8 +1,11 @@
 from django.shortcuts import render
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework import generics, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Product, Category, Review
-from .serializers import ProductSerializer, CategorySerializer, ReviewSerializer
+from .models import Product, Category, Review, ProductImage, Wishlist, Order, OrderItem
+from .serializers import ProductSerializer, CategorySerializer, ReviewSerializer, ProductImageSerializer, WishlistSerializer, OrderItemSerializer, OrderSerializer
 from .filters import ProductFilter 
 
 # List all products or create a new one
@@ -80,4 +83,99 @@ class ReviewDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         return Review.objects.filter(product_id=self.kwargs['product_pk'])
 
+# Product Image views
+class ProductImageListCreateView(generics.ListCreateAPIView):
+    serializer_class = ProductImageSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return ProductImage.objects.filter(product_id=self.kwargs['product_pk'])
+
+    def perform_create(self, serializer):
+        product = Product.objects.get(pk=self.kwargs['product_pk'])
+        serializer.save(product=product)
+
+class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = ProductImageSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return ProductImage.objects.filter(product_id=self.kwargs['product_pk'])
+
+# Wishlist views
+class WishlistView(generics.RetrieveAPIView):
+    serializer_class = WishlistSerializer
+    permission_classes = [permissions.IsAuthenticated]  # must be logged in
+
+    def get_object(self):
+        # get or create wishlist for the logged in user automatically
+        wishlist, created = Wishlist.objects.get_or_create(user=self.request.user)
+        return wishlist
+
+class WishlistAddProductView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, product_pk):
+        wishlist, created = Wishlist.objects.get_or_create(user=request.user)
+        product = Product.objects.get(pk=product_pk)
+
+        if wishlist.products.filter(pk=product_pk).exists():
+            return Response(
+                {'detail': 'Product already in wishlist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        wishlist.products.add(product)
+        return Response(
+            {'detail': f'{product.name} added to wishlist.'},
+            status=status.HTTP_200_OK
+        )
+
+class WishlistRemoveProductView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, product_pk):
+        wishlist, created = Wishlist.objects.get_or_create(user=request.user)
+        product = Product.objects.get(pk=product_pk)
+
+        if not wishlist.products.filter(pk=product_pk).exists():
+            return Response(
+                {'detail': 'Product not in wishlist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        wishlist.products.remove(product)
+        return Response(
+            {'detail': f'{product.name} removed from wishlist.'},
+            status=status.HTTP_200_OK
+        )
+
+# Order views
+class OrderListCreateView(generics.ListCreateAPIView):
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]  # must be logged in
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)  # users only see their own orders
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+    def perform_update(self, serializer):
+        order = self.get_object()
+        new_status = self.request.data.get('status')
+
+        # restore stock if order is cancelled
+        if new_status == 'cancelled' and order.status != 'cancelled':
+            for item in order.items.all():
+                item.product.restore_stock(item.quantity)
+
+        serializer.save()
 
