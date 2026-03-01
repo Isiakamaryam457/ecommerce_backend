@@ -1,11 +1,14 @@
 from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework import generics, permissions, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Product, Category, Review, ProductImage, Wishlist, Order, OrderItem
-from .serializers import ProductSerializer, CategorySerializer, ReviewSerializer, ProductImageSerializer, WishlistSerializer, OrderItemSerializer, OrderSerializer
+from django.utils import timezone
+from .models import Product, Category, Review, ProductImage, Wishlist, Order, OrderItem, Discount
+from .serializers import ProductSerializer, CategorySerializer, ReviewSerializer, ProductImageSerializer, WishlistSerializer, OrderItemSerializer, OrderSerializer, DiscountSerializer
 from .filters import ProductFilter 
 
 # List all products or create a new one
@@ -14,7 +17,7 @@ class ProductListCreateView(generics.ListCreateAPIView):
     serializer_class = ProductSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly] # only authenticated users can create
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ProductFilter
+    filterset_class = ProductFilter
     search_fields = ['name', 'category__name'] # search by name or category
     ordering_fields = ['price', 'created_date']  # order by price or date
     
@@ -70,7 +73,7 @@ class ReviewListCreateView(generics.ListCreateAPIView):
         return Review.objects.filter(product_id=self.kwargs['product_pk'])  # only reviews for this product
 
     def perform_create(self, serializer):
-        product = Product.objects.get(pk=self.kwargs['product_pk'])
+        product = get_object_or_404(Product, pk=self.kwargs['product_pk'])
         # check if user already reviewed this product
         if Review.objects.filter(product=product, user=self.request.user).exists():
             raise ValidationError("You have already reviewed this product.")
@@ -92,7 +95,7 @@ class ProductImageListCreateView(generics.ListCreateAPIView):
         return ProductImage.objects.filter(product_id=self.kwargs['product_pk'])
 
     def perform_create(self, serializer):
-        product = Product.objects.get(pk=self.kwargs['product_pk'])
+        product = get_object_or_404(Product, pk=self.kwargs['product_pk'])
         serializer.save(product=product)
 
 class ProductImageDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -117,7 +120,7 @@ class WishlistAddProductView(APIView):
 
     def post(self, request, product_pk):
         wishlist, created = Wishlist.objects.get_or_create(user=request.user)
-        product = Product.objects.get(pk=product_pk)
+        product = get_object_or_404(Product, pk=product_pk)
 
         if wishlist.products.filter(pk=product_pk).exists():
             return Response(
@@ -136,7 +139,7 @@ class WishlistRemoveProductView(APIView):
 
     def delete(self, request, product_pk):
         wishlist, created = Wishlist.objects.get_or_create(user=request.user)
-        product = Product.objects.get(pk=product_pk)
+        product = get_object_or_404(Product, pk=product_pk)
 
         if not wishlist.products.filter(pk=product_pk).exists():
             return Response(
@@ -179,3 +182,21 @@ class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
 
         serializer.save()
 
+# Discount views
+class DiscountListCreateView(generics.ListCreateAPIView):
+    serializer_class = DiscountSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return Discount.objects.filter(product_id=self.kwargs['product_pk'])
+
+    def perform_create(self, serializer):
+        product = get_object_or_404(Product, pk=self.kwargs['product_pk'])
+        serializer.save(created_by=self.request.user, product=product)
+
+class DiscountDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = DiscountSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        return Discount.objects.filter(product_id=self.kwargs['product_pk'])

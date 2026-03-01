@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Product, Review, ProductImage, Wishlist, Order, OrderItem
+from .models import Category, Product, Review, ProductImage, Wishlist, Order, OrderItem, Discount
 
 class CategorySerializer(serializers.ModelSerializer):
     created_by = serializers.StringRelatedField(read_only=True)  # shows username
@@ -11,7 +11,7 @@ class CategorySerializer(serializers.ModelSerializer):
         read_only_fields = ['created_date', 'updated_date', 'created_by']
 
 
-        def get_product_count(self, obj):
+    def get_product_count(self, obj):
             return obj.products.count()  # counts products in this category
 
 
@@ -29,23 +29,47 @@ class ReviewSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'rating', 'comment', 'created_date']
         read_only_fields = ['created_date',]
 
+class DiscountSerializer(serializers.ModelSerializer):
+    created_by = serializers.StringRelatedField(read_only=True)
+    is_valid = serializers.SerializerMethodField()
+    discounted_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Discount
+        fields = [
+            'id', 'name', 'discount_type', 'value',
+            'start_date', 'end_date', 'is_active',
+            'created_by', 'created_date', 'is_valid', 'discounted_price'
+        ]
+        read_only_fields = ['created_date', 'created_by']
+
+    def get_is_valid(self, obj):
+        return obj.is_valid()
+
+    def get_discounted_price(self, obj):
+        return obj.product.get_discounted_price()  # now works because Product has the method
+
+    def validate(self, data):
+        if data['end_date'] <= data['start_date']:
+            raise serializers.ValidationError("End date must be after start date.")
+        if data['discount_type'] == 'percentage' and data['value'] > 100:
+            raise serializers.ValidationError("Percentage discount cannot exceed 100%.")
+        return data
 
 class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)  # shows full category details on read
     category_id = serializers.PrimaryKeyRelatedField(  # accepts category id on write
-        queryset=Category.objects.filter(is_active=True),  # only active categories
+        queryset=Category.objects.filter(),  # only active categories
         source='category',
         write_only=True
     )
     reviews = ReviewSerializer(many=True, read_only=True)  # shows all reviews on product
     average_rating = serializers.SerializerMethodField()   # shows average rating
 
-
-
     class Meta:
         model = Product
         fields = [
-            'id', 'name', 'description', 
+            'id', 'name', 'description', 'price',
             'category', 'category_id', 'stock_quantity',
             'image_url', 'created_date', 'reviews', 'average_rating'
         ]

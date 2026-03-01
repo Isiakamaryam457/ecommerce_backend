@@ -1,5 +1,7 @@
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
+
 
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -30,6 +32,32 @@ class Product(models.Model):
     
     def __str__(self):
         return self.name
+
+    def get_discounted_price(self):
+        """Returns the price after applying the highest valid discount."""
+        now = timezone.now()
+        active_discounts = self.discounts.filter(is_active=True, start_date__lte=now, end_date__gte=now)
+
+        if not active_discounts.exists():
+            return self.price  # no discount
+
+        discounted_prices = []
+        for discount in active_discounts:
+            if discount.discount_type == 'percentage':
+                discounted_prices.append(self.price * (1 - discount.value / 100))
+            elif discount.discount_type == 'fixed':
+                discounted_prices.append(max(self.price - discount.value, 0))  # price cannot go below 0
+
+        return min(discounted_prices)  # lowest price after applying discounts
+
+    def reduce_stock(self, quantity):
+        """Reduces stock when an order is placed."""
+        if quantity > self.stock_quantity:
+            raise ValueError(f"Not enough stock for {self.name}")
+        self.stock_quantity -= quantity
+        self.save()
+
+
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
@@ -101,7 +129,7 @@ class Discount(models.Model):
         now = timezone.now()
         return self.is_active and self.start_date <= now <= self.end_date
 
-        
+
 class Order(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
